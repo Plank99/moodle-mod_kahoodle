@@ -57,8 +57,12 @@ class multichoice extends base {
             throw new \moodle_exception('multichoice_needtwooptions', 'mod_kahoodle');
         }
         $correctoptions = array_filter($options, fn($o) => $o['iscorrect']);
-        if (empty($correctoptions) || count($correctoptions) > 1) {
-            throw new \moodle_exception('multichoice_needonecorrectoption', 'mod_kahoodle');
+        if (empty($correctoptions)) {
+            throw new \moodle_exception('multichoice_needcorrectoption', 'mod_kahoodle');
+        }
+        if (count($correctoptions) >= count($options)) {
+            // Every option correct makes the question meaningless and the results chart useless.
+            throw new \moodle_exception('multichoice_needincorrectoption', 'mod_kahoodle');
         }
 
         // If editing an existing question with responses, validate compatible changes.
@@ -145,6 +149,7 @@ class multichoice extends base {
                 'options' => $options,
                 'optioncount' => 0,
                 'manyoptions' => false,
+                'multiselect' => false,
             ];
         }
 
@@ -176,6 +181,7 @@ class multichoice extends base {
             'options' => $options,
             'optioncount' => count($options),
             'manyoptions' => count($options) > 4,
+            'multiselect' => count($this->get_correct_numbers($answers)) > 1,
         ];
     }
 
@@ -209,6 +215,7 @@ class multichoice extends base {
                 'options' => $options,
                 'optioncount' => 0,
                 'manyoptions' => false,
+                'multiselect' => false,
             ];
         }
 
@@ -226,6 +233,7 @@ class multichoice extends base {
             'options' => $options,
             'optioncount' => count($options),
             'manyoptions' => count($options) > 4,
+            'multiselect' => count($this->get_correct_numbers($answers)) > 1,
         ];
     }
 
@@ -301,10 +309,13 @@ class multichoice extends base {
 
         $records = $DB->get_records_sql($sql, $params);
         foreach ($records as $record) {
-            $index = (int)$record->response - 1;
-            if (isset($answerscount[$index])) {
-                // Add up, because responses saved before they were normalised may spell the same option differently.
-                $answerscount[$index] += (int)$record->cnt;
+            // A response may name several options, so one record can feed several counters.
+            // Add up, because responses saved before they were normalised may spell the same option differently.
+            foreach ($this->parse_response((string)$record->response) as $optionnumber) {
+                $index = $optionnumber - 1;
+                if (isset($answerscount[$index])) {
+                    $answerscount[$index] += (int)$record->cnt;
+                }
             }
         }
 
@@ -314,11 +325,45 @@ class multichoice extends base {
     /**
      * Normalise a participant's answer, for example "01" or "1 " become "1"
      *
-     * @param string $response The option number (1-based) as a string
+     * A selection of several options is sorted and de-duplicated, so "3,1,3"
+     * becomes "1,3" and the stored value does not depend on the tap order.
+     *
+     * @param string $response One or more 1-based option numbers, comma separated
      * @return string
      */
     public function normalise_response(string $response): string {
-        return (string)(int)$response;
+        $numbers = $this->parse_response($response);
+        // Input naming no option at all keeps the previous single zero, which
+        // validate_answer() and format_response() both reject as no answer.
+        return $numbers ? join(',', $numbers) : '0';
+    }
+
+    /**
+     * Parse a response into a canonical, sorted list of 1-based option numbers
+     *
+     * Accepts both the single-value form used before multi-select ("3") and the
+     * comma separated form ("1,3"), so responses stored by earlier versions keep working.
+     *
+     * @param string|null $response
+     * @return int[] sorted, unique, positive option numbers
+     */
+    protected function parse_response(?string $response): array {
+        $numbers = array_map('intval', explode(',', (string)$response));
+        $numbers = array_values(array_unique(array_filter($numbers, fn($n) => $n > 0)));
+        sort($numbers);
+        return $numbers;
+    }
+
+    /**
+     * Option numbers (1-based) of every option marked as correct
+     *
+     * @param array $options as returned by {@see self::get_answers_options()}
+     * @return int[] sorted
+     */
+    protected function get_correct_numbers(array $options): array {
+        $correct = array_map(fn($i) => $i + 1, array_keys(array_filter($options, fn($o) => $o['iscorrect'])));
+        sort($correct);
+        return $correct;
     }
 
     /**
@@ -329,16 +374,23 @@ class multichoice extends base {
      * @return bool|null True if correct, false if incorrect, null if invalid
      */
     public function validate_answer(round_question $roundquestion, string $response): ?bool {
-        $optionnumber = (int)$response;
         $options = $this->get_answers_options($roundquestion->get_data()->questionconfig);
+        $selected = $this->parse_response($response);
 
-        // Invalid option number - return null to indicate invalid answer.
-        if ($optionnumber < 1 || $optionnumber > count($options)) {
+        // No selection at all - return null to indicate invalid answer.
+        if (empty($selected)) {
             return null;
         }
 
-        // Return whether the selected option is correct.
-        return $options[$optionnumber - 1]['iscorrect'];
+        // Any option number out of range - return null to indicate invalid answer.
+        foreach ($selected as $optionnumber) {
+            if ($optionnumber > count($options)) {
+                return null;
+            }
+        }
+
+        // All or nothing: the selection must match the correct set exactly.
+        return $selected === $this->get_correct_numbers($options);
     }
 
     /**
@@ -353,14 +405,22 @@ class multichoice extends base {
             return null;
         }
 
-        $optionnumber = (int)$response;
         $options = $this->get_answers_options($roundquestion->get_data()->questionconfig);
+        $selected = $this->parse_response($response);
 
-        // Invalid option number - return null to indicate no answer.
-        if ($optionnumber < 1 || $optionnumber > count($options)) {
+        if (empty($selected)) {
             return null;
         }
 
-        return format_string($options[$optionnumber - 1]['text']);
+        $texts = [];
+        foreach ($selected as $optionnumber) {
+            // Invalid option number - return null to indicate no answer.
+            if ($optionnumber > count($options)) {
+                return null;
+            }
+            $texts[] = format_string($options[$optionnumber - 1]['text']);
+        }
+
+        return join(', ', $texts);
     }
 }
