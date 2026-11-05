@@ -28,6 +28,7 @@
         "totalscore": 150,
         "typedata": {
             "manyoptions": true,
+            "multiselect": true,
             "options": [
                 {
                     "optionnumber": 1,
@@ -74,7 +75,8 @@
 
     {{! Question type specific content - answer options }}
     {{#typedata}}
-    <div class="mod_kahoodle-options{{#manyoptions}} mod_kahoodle-options-many{{/manyoptions}}">
+    <div class="mod_kahoodle-options{{#manyoptions}} mod_kahoodle-options-many{{/manyoptions}}"
+        {{#multiselect}}data-multiselect="1"{{/multiselect}}>
         <div class="mod_kahoodle-options-grid{{#manyoptions}} mod_kahoodle-options-grid-compact{{/manyoptions}}">
             {{#options}}
             <div class="mod_kahoodle-option mod_kahoodle-option{{optionnumber}}" data-option="{{optionnumber}}">
@@ -84,6 +86,14 @@
             </div>
             {{/options}}
         </div>
+        {{#multiselect}}
+        <div class="mod_kahoodle-options-confirm">
+            <p class="mod_kahoodle-options-hint">{{#str}} multichoice_selectall, mod_kahoodle {{/str}}</p>
+            <button type="button" class="btn btn-primary" data-action="submit-answer" disabled>
+                {{#str}} multichoice_submitanswer, mod_kahoodle {{/str}}
+            </button>
+        </div>
+        {{/multiselect}}
     </div>
     {{/typedata}}
 
@@ -100,21 +110,65 @@
 
 {{#js}}
 require(['core/pubsub', 'mod_kahoodle/events'], function(PubSub, KahoodleEvents) {
-    document.querySelectorAll('.mod_kahoodle-option[data-option]').forEach(function(el) {
+    var container = document.querySelector(
+        '.mod_kahoodle-participant-question-content[data-questiontype="multichoice"] .mod_kahoodle-options'
+    );
+    if (!container) {
+        return;
+    }
+    var options = container.querySelectorAll('.mod_kahoodle-option[data-option]');
+    // Questions with several correct answers collect a selection instead of submitting on the first tap.
+    var multiselect = container.dataset.multiselect === '1';
+    var confirmButton = container.querySelector('[data-action="submit-answer"]');
+
+    var selection = function() {
+        return Array.prototype.filter.call(options, function(opt) {
+            return opt.classList.contains('mod_kahoodle-option-selected');
+        }).map(function(opt) {
+            return opt.dataset.option;
+        });
+    };
+
+    var submit = function(response) {
+        // Visual feedback - disable all options.
+        options.forEach(function(opt) {
+            opt.classList.add('mod_kahoodle-option-disabled');
+        });
+        if (confirmButton) {
+            confirmButton.disabled = true;
+        }
+        // Dispatch event for participant.js to catch.
+        PubSub.publish(KahoodleEvents.ANSWER, response);
+    };
+
+    options.forEach(function(el) {
         el.addEventListener('click', function(e) {
             e.preventDefault();
             if (this.classList.contains('mod_kahoodle-option-disabled')) {
                 // Already answered.
                 return;
             }
-            // Visual feedback - disable all options.
-            document.querySelectorAll('.mod_kahoodle-option').forEach(function(opt) {
-                opt.classList.add('mod_kahoodle-option-disabled');
-            });
-            this.classList.add('mod_kahoodle-option-selected');
-            // Dispatch event for participant.js to catch.
-            PubSub.publish(KahoodleEvents.ANSWER, String(this.dataset.option));
+            if (!multiselect) {
+                this.classList.add('mod_kahoodle-option-selected');
+                submit(String(this.dataset.option));
+                return;
+            }
+            // The answer is only sent when the participant confirms, so the clock
+            // keeps running while they are still picking options.
+            this.classList.toggle('mod_kahoodle-option-selected');
+            confirmButton.disabled = selection().length === 0;
         });
     });
+
+    if (confirmButton) {
+        confirmButton.addEventListener('click', function(e) {
+            e.preventDefault();
+            var selected = selection();
+            if (!selected.length) {
+                return;
+            }
+            submit(selected.join(','));
+        });
+    }
 });
 {{/js}}
