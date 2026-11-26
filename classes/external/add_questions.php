@@ -51,8 +51,10 @@ class add_questions extends external_api {
                     'questionconfig' => new external_value(
                         PARAM_RAW,
                         "Type-specific configuration.\n\n" .
-                        "For multichoice question, provide possible answers, one per line, with the " .
-                        "correct answer prefixed with '*'.\n\n" .
+                        "For multichoice question, provide possible answers, one per line, with each " .
+                        "correct answer prefixed with '*'. Marking several answers correct lets " .
+                        "participants select several options, and they must find all of them to score. " .
+                        "At least one answer must be left without an asterisk.\n\n" .
                         "For some question types the value is required.",
                         VALUE_OPTIONAL
                     ),

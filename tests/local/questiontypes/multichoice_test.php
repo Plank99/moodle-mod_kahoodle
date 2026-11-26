@@ -126,9 +126,22 @@ final class multichoice_test extends \advanced_testcase {
     }
 
     /**
-     * Test sanitize rejects multiple correct options
+     * Test sanitize accepts several correct options
      */
     public function test_sanitize_multiple_correct_options(): void {
+        $this->resetAfterTest();
+        $rq = $this->create_question_with_config("Apple\n*Banana\n*Cherry");
+
+        $data = $rq->get_data();
+        $this->assertStringContainsString('*Banana', $data->questionconfig);
+        $this->assertStringContainsString('*Cherry', $data->questionconfig);
+        $this->assertStringContainsString('Apple', $data->questionconfig);
+    }
+
+    /**
+     * Test sanitize rejects marking every option correct
+     */
+    public function test_sanitize_all_options_correct(): void {
         $this->resetAfterTest();
 
         $course = $this->getDataGenerator()->create_course();
@@ -138,7 +151,7 @@ final class multichoice_test extends \advanced_testcase {
         $this->get_generator()->create_question([
             'kahoodleid' => $kahoodle->id,
             'questiontext' => 'Test',
-            'questionconfig' => "*A\n*B\nC",
+            'questionconfig' => "*A\n*B\n*C",
         ]);
     }
 
@@ -332,6 +345,66 @@ final class multichoice_test extends \advanced_testcase {
     }
 
     /**
+     * Test export_template_data counts every option named by a multiple selection
+     */
+    public function test_export_template_data_results_counts_multiple(): void {
+        $this->resetAfterTest();
+        $rq = $this->create_question_with_config("Apple\n*Banana\n*Cherry\nDate");
+
+        foreach (['2,3', '2,3', '1', '3'] as $response) {
+            $user = $this->getDataGenerator()->create_user();
+            $participantid = $this->get_generator()->create_participant([
+                'roundid' => $rq->get_round()->get_id(),
+                'userid' => $user->id,
+            ]);
+            $this->get_generator()->create_response([
+                'participantid' => $participantid,
+                'roundquestionid' => $rq->get_id(),
+                'response' => $response,
+            ]);
+        }
+
+        $mc = new multichoice();
+        $result = $mc->export_template_data($rq, constants::STAGE_QUESTION_RESULTS);
+        // Four responses, but a response naming two options credits both of them.
+        $this->assertEquals([1, 2, 3, 0], array_column($result['options'], 'count'));
+    }
+
+    /**
+     * Test the multiselect flag follows the number of correct options
+     */
+    public function test_export_template_data_multiselect_flag(): void {
+        $this->resetAfterTest();
+
+        $single = $this->create_question_with_config("Apple\n*Banana\nCherry");
+        $multi = $this->create_question_with_config("Apple\n*Banana\n*Cherry");
+
+        $mc = new multichoice();
+        $this->assertFalse($mc->export_template_data($single, constants::STAGE_QUESTION)['multiselect']);
+        $this->assertTrue($mc->export_template_data($multi, constants::STAGE_QUESTION)['multiselect']);
+    }
+
+    /**
+     * Test the multiselect flag reaches the participant template too
+     */
+    public function test_export_template_data_participant_multiselect_flag(): void {
+        $this->resetAfterTest();
+        $rq = $this->create_question_with_config("Apple\n*Banana\n*Cherry");
+
+        $user = $this->getDataGenerator()->create_user();
+        $round = $rq->get_round();
+        $participantid = $this->get_generator()->create_participant([
+            'roundid' => $round->get_id(),
+            'userid' => $user->id,
+        ]);
+        $participant = $round->get_participant_by_id($participantid);
+
+        $mc = new multichoice();
+        $result = $mc->export_template_data_participant($participant, $rq, constants::STAGE_QUESTION);
+        $this->assertTrue($result['multiselect']);
+    }
+
+    /**
      * Test normalise_response
      */
     public function test_normalise_response(): void {
@@ -342,6 +415,12 @@ final class multichoice_test extends \advanced_testcase {
         $this->assertSame('1', $mc->normalise_response(' 1'));
         $this->assertSame('1', $mc->normalise_response('1x'));
         $this->assertSame('0', $mc->normalise_response('abc'));
+        // A selection of several options is sorted and de-duplicated.
+        $this->assertSame('1,3', $mc->normalise_response('3,1'));
+        $this->assertSame('1,3', $mc->normalise_response('1,3,1'));
+        $this->assertSame('1,2,3', $mc->normalise_response(' 3 , 01 ,2'));
+        $this->assertSame('2', $mc->normalise_response('2,abc'));
+        $this->assertSame('0', $mc->normalise_response(',,'));
     }
 
     /**
@@ -381,6 +460,42 @@ final class multichoice_test extends \advanced_testcase {
     }
 
     /**
+     * Test validate_answer scores a multiple correct question all or nothing
+     */
+    public function test_validate_answer_multiple_correct(): void {
+        $this->resetAfterTest();
+        $rq = $this->create_question_with_config("A\n*B\n*C\nD");
+
+        $mc = new multichoice();
+        // Exactly the correct set, in either order.
+        $this->assertTrue($mc->validate_answer($rq, '2,3'));
+        $this->assertTrue($mc->validate_answer($rq, '3,2'));
+        // A subset of the correct set earns nothing.
+        $this->assertFalse($mc->validate_answer($rq, '2'));
+        $this->assertFalse($mc->validate_answer($rq, '3'));
+        // Neither does the correct set plus an incorrect option.
+        $this->assertFalse($mc->validate_answer($rq, '1,2,3'));
+        $this->assertFalse($mc->validate_answer($rq, '2,3,4'));
+        // Nor a selection missing every correct option.
+        $this->assertFalse($mc->validate_answer($rq, '1,4'));
+        // An option that does not exist is not an answer at all.
+        $this->assertNull($mc->validate_answer($rq, '2,5'));
+    }
+
+    /**
+     * Test validate_answer is unchanged for a question with a single correct option
+     */
+    public function test_validate_answer_single_correct_unchanged(): void {
+        $this->resetAfterTest();
+        $rq = $this->create_question_with_config("A\n*B\nC");
+
+        $mc = new multichoice();
+        $this->assertTrue($mc->validate_answer($rq, '2'));
+        // Selecting the correct option plus another is wrong, not partially right.
+        $this->assertFalse($mc->validate_answer($rq, '1,2'));
+    }
+
+    /**
      * Test format_response with valid option number
      */
     public function test_format_response_valid(): void {
@@ -414,6 +529,20 @@ final class multichoice_test extends \advanced_testcase {
         $mc = new multichoice();
         $this->assertNull($mc->format_response('0', $rq));
         $this->assertNull($mc->format_response('4', $rq));
+    }
+
+    /**
+     * Test format_response lists every option named by the response
+     */
+    public function test_format_response_multiple(): void {
+        $this->resetAfterTest();
+        $rq = $this->create_question_with_config("Apple\n*Banana\n*Cherry");
+
+        $mc = new multichoice();
+        $this->assertEquals('Apple, Cherry', $mc->format_response('1,3', $rq));
+        $this->assertEquals('Banana, Cherry', $mc->format_response('3,2', $rq));
+        // One option out of range invalidates the whole response.
+        $this->assertNull($mc->format_response('2,4', $rq));
     }
 
     /**

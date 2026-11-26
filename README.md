@@ -6,6 +6,25 @@ Kahoodle is a Moodle activity module that enables real-time, interactive quiz se
 
 Find out more on the [product page](https://lmscloud.io/plugins/mod_kahoodle) on LMSCloud.
 
+## About this fork
+
+This is a fork of `mod_kahoodle`. It follows upstream
+[`v4.5.2`](https://github.com/marinaglancy/moodle-mod_kahoodle) and adds one
+thing: **a question may have more than one correct answer.**
+
+- The facilitator marks every correct option with `*` when writing the question.
+- Participants toggle their choices and send them with a confirm button, instead
+  of the answer being submitted on the first tap.
+- Credit is all or nothing: the selected set has to match the correct set
+  exactly, so a partial answer scores zero.
+- Single-answer questions behave exactly as upstream — the confirm button only
+  appears when a question actually has several correct options.
+
+The work is on the **`multi-correct`** branch, released as `4.5.2+multi.1`.
+`main` is an untouched mirror of upstream, so future upstream releases keep
+merging cleanly. Everything else — gameplay, scoring, leaderboard, backup,
+privacy — is upstream's.
+
 ## Features
 
 - **Real-time gameplay** - All participants answer questions simultaneously
