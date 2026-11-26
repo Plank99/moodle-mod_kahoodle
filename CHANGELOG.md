@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.5.2+multi.1] - 2026-11-05
+
+Fork of upstream 4.5.2 — see "About this fork" in the README.
+
+### Added
+- A question can have more than one correct answer. The facilitator marks each correct option with `*`; participants select options and send them with a confirm button, and credit requires the selected set to match exactly.
+
 ## [4.5.2] - 2026-10-02
 
 ### Added
