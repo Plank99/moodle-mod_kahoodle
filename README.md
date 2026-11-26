@@ -20,10 +20,11 @@ thing: **a question may have more than one correct answer.**
 - Single-answer questions behave exactly as upstream — the confirm button only
   appears when a question actually has several correct options.
 
-The work is on the **`multi-correct`** branch, released as `4.5.2+multi.1`.
-`main` is an untouched mirror of upstream, so future upstream releases keep
-merging cleanly. Everything else — gameplay, scoring, leaderboard, backup,
-privacy — is upstream's.
+The fork's code is on **`main`**, released as `4.5.2+multi.1`; the
+`multi-correct` branch points at the same commit and is kept as the feature
+branch. Upstream is tracked through the `upstream` remote, and new upstream
+releases are merged in here. Everything else — gameplay, scoring,
+leaderboard, backup, privacy — is upstream's.
 
 ## Features
 
